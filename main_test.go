@@ -7,13 +7,21 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 )
+
+type SpySleeper struct {
+	Calls int
+}
+
+func (s *SpySleeper) Sleep() {
+	s.Calls++
+}
 
 func TestHashHandler(t *testing.T) {
 	cases := []struct {
 		name       string
 		method     string
+		input      *PasswordHash
 		path       string
 		password   string
 		expected   string
@@ -22,6 +30,7 @@ func TestHashHandler(t *testing.T) {
 		{
 			name:       "Get hash id 4 which does not exist",
 			method:     http.MethodGet,
+			input:      &PasswordHash{Passwords: map[int]string{}, Id: 0, TotalTimeMicro: 0, Sleeper: &SpySleeper{}},
 			path:       "/hash/4",
 			password:   "",
 			expected:   `{"error":"ID 4 not found"}`,
@@ -30,6 +39,7 @@ func TestHashHandler(t *testing.T) {
 		{
 			name:       "Get invalid hash id",
 			method:     http.MethodGet,
+			input:      &PasswordHash{Passwords: map[int]string{}, Id: 0, TotalTimeMicro: 0, Sleeper: &SpySleeper{}},
 			path:       "/hash/4abc",
 			password:   "",
 			expected:   `{"error":"Invalid ID 4abc"}`,
@@ -38,6 +48,7 @@ func TestHashHandler(t *testing.T) {
 		{
 			name:       "Hash angryMonkey",
 			method:     http.MethodPost,
+			input:      &PasswordHash{Passwords: map[int]string{}, Id: 0, TotalTimeMicro: 0, Sleeper: &SpySleeper{}},
 			path:       "/hash",
 			password:   "angryMonkey",
 			expected:   "1",
@@ -46,6 +57,7 @@ func TestHashHandler(t *testing.T) {
 		{
 			name:       "Hash 123",
 			method:     http.MethodPost,
+			input:      &PasswordHash{Passwords: map[int]string{1: "hashstring"}, Id: 1, TotalTimeMicro: 123, Sleeper: &SpySleeper{}},
 			path:       "/hash",
 			password:   "123",
 			expected:   "2",
@@ -54,33 +66,40 @@ func TestHashHandler(t *testing.T) {
 		{
 			name:       "Hash something",
 			method:     http.MethodPost,
+			input:      &PasswordHash{Passwords: map[int]string{1: "hashstring", 2: "anotherhash"}, Id: 2, TotalTimeMicro: 145, Sleeper: &SpySleeper{}},
 			path:       "/hash/",
 			password:   "something",
 			expected:   "3",
 			statusCode: http.StatusOK,
 		},
 		{
-			name:       "Get hash id 1",
-			method:     http.MethodGet,
-			path:       "/hash/1",
-			password:   "",
-			expected:   "ZEHhWB65gUlzdVwtDQArEyx+KVLzp/aTaRaPlBzYRIFj6vjFdqEb0Q5B8zVKCZ0vKbZPZklJz0Fd7su2A+gf7Q==",
+			name:     "Get hash id 1",
+			method:   http.MethodGet,
+			input:    &PasswordHash{Passwords: map[int]string{1: "hashstring", 2: "anotherhash", 3: "yetanotherone"}, Id: 3, TotalTimeMicro: 137, Sleeper: &SpySleeper{}},
+			path:     "/hash/1",
+			password: "",
+			// expected:   "ZEHhWB65gUlzdVwtDQArEyx+KVLzp/aTaRaPlBzYRIFj6vjFdqEb0Q5B8zVKCZ0vKbZPZklJz0Fd7su2A+gf7Q==",
+			expected:   "hashstring",
 			statusCode: http.StatusOK,
 		},
 		{
-			name:       "Get hash id 2",
-			method:     http.MethodGet,
-			path:       "/hash/2",
-			password:   "",
-			expected:   "PJkJr+wlNU1VHa4hWQuybjjVPyFzuNPcPu5MBH56scHri4UQPjvnumE7MbtcnDYhTcnxSkL9ei/bhIVrylxEwg==",
+			name:     "Get hash id 2",
+			method:   http.MethodGet,
+			input:    &PasswordHash{Passwords: map[int]string{1: "hashstring", 2: "anotherhash", 3: "yetanotherone"}, Id: 3, TotalTimeMicro: 137, Sleeper: &SpySleeper{}},
+			path:     "/hash/2",
+			password: "",
+			// expected:   "PJkJr+wlNU1VHa4hWQuybjjVPyFzuNPcPu5MBH56scHri4UQPjvnumE7MbtcnDYhTcnxSkL9ei/bhIVrylxEwg==",
+			expected:   "anotherhash",
 			statusCode: http.StatusOK,
 		},
 		{
-			name:       "Get hash id 3",
-			method:     http.MethodGet,
-			path:       "/hash/3",
-			password:   "",
-			expected:   "mD1D3f9tqQ9qXTthckRqH/4ii4A/5k/dXc+rVkYHioloUf6C9iPJ1uVlSz0vNjoE7BfPtitgdDepx8Ey1RHlIg==",
+			name:     "Get hash id 3",
+			method:   http.MethodGet,
+			input:    &PasswordHash{Passwords: map[int]string{1: "hashstring", 2: "anotherhash", 3: "yetanotherone"}, Id: 3, TotalTimeMicro: 137, Sleeper: &SpySleeper{}},
+			path:     "/hash/3",
+			password: "",
+			// expected:   "mD1D3f9tqQ9qXTthckRqH/4ii4A/5k/dXc+rVkYHioloUf6C9iPJ1uVlSz0vNjoE7BfPtitgdDepx8Ey1RHlIg==",
+			expected:   "yetanotherone",
 			statusCode: http.StatusOK,
 		},
 	}
@@ -89,9 +108,7 @@ func TestHashHandler(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var req *http.Request
 			var err error
-			// TODO: Remove this. This is a really dumb hack to get tests working for now.
 			if tc.method == http.MethodGet {
-				time.Sleep(6 * time.Second)
 				req, err = http.NewRequest(tc.method, "http://localhost:8080"+tc.path, nil)
 			}
 
@@ -107,19 +124,86 @@ func TestHashHandler(t *testing.T) {
 				t.Error(err)
 			}
 			resRecorder := httptest.NewRecorder()
-			handler := http.HandlerFunc(HashHandler)
-			handler.ServeHTTP(resRecorder, req)
 
-			//Check status code
+			passwordHashHandler{tc.input}.ServeHTTP(resRecorder, req)
+
+			// Check status code
 			status := resRecorder.Code
 			if status != tc.statusCode {
 				t.Errorf("Expected %v but instead got %v", tc.statusCode, status)
 			}
 
-			//Check body
-			id := resRecorder.Body.String()
-			if id != tc.expected {
-				t.Errorf("Expected %v but instead got %v", tc.expected, id)
+			// Check body
+			body := strings.TrimSpace(resRecorder.Body.String())
+			if body != tc.expected {
+				t.Errorf("Expected %v but instead got %v", tc.expected, body)
+			}
+
+		})
+	}
+}
+
+func TestStatsHandler(t *testing.T) {
+	cases := []struct {
+		name       string
+		method     string
+		input      *PasswordHash
+		path       string
+		password   string
+		expected   string
+		statusCode int
+	}{
+		{
+			name:       "Get stats after no passwords were hashed",
+			method:     http.MethodGet,
+			input:      &PasswordHash{Passwords: map[int]string{}, Id: 0, TotalTimeMicro: 0, Sleeper: &SpySleeper{}},
+			path:       "/stats",
+			password:   "",
+			expected:   `{"Total":0,"Average":0}`,
+			statusCode: http.StatusOK,
+		},
+		{
+			name:       "Get stats after a few passwords were hashed",
+			method:     http.MethodGet,
+			input:      &PasswordHash{Passwords: map[int]string{}, Id: 3, TotalTimeMicro: 789, Sleeper: &SpySleeper{}},
+			path:       "/stats",
+			password:   "",
+			expected:   `{"Total":3,"Average":263}`,
+			statusCode: http.StatusOK,
+		},
+		{
+			name:       "Post stats not allowed",
+			method:     http.MethodPost,
+			input:      &PasswordHash{Passwords: map[int]string{}, Id: 3, TotalTimeMicro: 789, Sleeper: &SpySleeper{}},
+			path:       "/stats",
+			password:   "",
+			expected:   "Method not allowed",
+			statusCode: http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+
+			req, err := http.NewRequest(tc.method, "http://localhost:8080"+tc.path, nil)
+
+			if err != nil {
+				t.Error(err)
+			}
+			resRecorder := httptest.NewRecorder()
+
+			statsHandler{tc.input}.ServeHTTP(resRecorder, req)
+
+			// Check status code
+			status := resRecorder.Code
+			if status != tc.statusCode {
+				t.Errorf("Expected %v but instead got %v", tc.statusCode, status)
+			}
+
+			// Check body
+			body := strings.TrimSpace(resRecorder.Body.String())
+			if body != tc.expected {
+				t.Errorf(`Expected "%v" but instead got "%v"`, tc.expected, body)
 			}
 
 		})

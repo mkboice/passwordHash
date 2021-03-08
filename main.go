@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -17,51 +21,35 @@ type ErrorResponse struct {
 	Message string `json:"error"`
 }
 
-// type PasswordHash struct {
-// 	Passwords      map[int]string
-// 	Id             int
-// 	TotalTimeMicro int64
-// }
-
-var id int = 0
-var totalTimeMicro int64 = 0
-
-// Passwords map of id and hash
-var Passwords map[int]string = make(map[int]string)
-
-func averageTime(start time.Time) {
-	elapsed := time.Since(start)
-	totalTimeMicro = totalTimeMicro + elapsed.Microseconds()
+type Sleeper interface {
+	Sleep()
 }
 
-func computeHash(password string, id int) {
-	fmt.Printf("COMPTUE called id: %s password: %s\n", strconv.Itoa(id), password)
+type DefaultSleeper struct{}
+
+func (d *DefaultSleeper) Sleep() {
 	time.Sleep(5 * time.Second)
-	hash := sha512.Sum512([]byte(password))
-	sha512Hash := base64.StdEncoding.EncodeToString(hash[:])
-	fmt.Println("id: " + strconv.Itoa(id) + " hash: " + sha512Hash)
-	Passwords[id] = sha512Hash
 }
 
-// HashHandler blah
-func HashHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		defer averageTime(time.Now()) // Making the assumption that average time is asking about the actual request, not hashing it
-		id = id + 1
-		password := r.PostFormValue("password")
-		if password == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, "Bad request: password not in form")
-			return
-		}
+type PasswordHash struct {
+	Passwords      map[int]string
+	Id             int
+	TotalTimeMicro int64
+	Sleeper        Sleeper
+	shutdown       chan os.Signal
+}
 
-		fmt.Println("password: " + password)
-		// call go routine
-		go computeHash(password, id)
-		fmt.Fprintf(w, strconv.Itoa(id))
-		return
+type passwordHashHandler struct {
+	passwordHash *PasswordHash
+}
 
-	} else if r.Method == http.MethodGet {
+type shutdownHandler struct {
+	passwordHash *PasswordHash
+}
+
+func (phh passwordHashHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
 		fmt.Println(r.URL)
 		path := r.URL.Path
 		splitPath := strings.Split(path, "/") // TODO: Add verification logic
@@ -81,8 +69,8 @@ func HashHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		fmt.Println("GET id: " + getID + " hash: " + Passwords[getIDInt])
-		hash, found := Passwords[getIDInt]
+		fmt.Println("GET id: " + getID + " hash: " + phh.passwordHash.Passwords[getIDInt])
+		hash, found := phh.passwordHash.Passwords[getIDInt]
 		if !found {
 			errorResponse := ErrorResponse{Message: "ID " + getID + " not found"}
 			jsonResponse, ok := json.Marshal(&errorResponse)
@@ -97,7 +85,40 @@ func HashHandler(w http.ResponseWriter, r *http.Request) {
 
 		fmt.Fprintf(w, "%s", hash)
 		return
+
+	case http.MethodPost:
+		defer phh.incrementTime(time.Now()) // Making the assumption that average time is asking about the actual request, not hashing it
+		phh.passwordHash.Id = phh.passwordHash.Id + 1
+		password := r.PostFormValue("password")
+		if password == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "Bad request: password not in form")
+			return
+		}
+
+		fmt.Println("password: " + password)
+		// call go routine
+		go phh.computeHash(password, phh.passwordHash.Id)
+		fmt.Fprintf(w, strconv.Itoa(phh.passwordHash.Id))
+		return
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (phh *passwordHashHandler) incrementTime(start time.Time) {
+	elapsed := time.Since(start)
+	phh.passwordHash.TotalTimeMicro = phh.passwordHash.TotalTimeMicro + elapsed.Microseconds()
+}
+
+// TODO: Understand pointer part better
+func (phh *passwordHashHandler) computeHash(password string, id int) {
+	fmt.Printf("COMPTUE called id: %s password: %s\n", strconv.Itoa(id), password)
+	phh.passwordHash.Sleeper.Sleep()
+	hash := sha512.Sum512([]byte(password))
+	sha512Hash := base64.StdEncoding.EncodeToString(hash[:])
+	fmt.Println("id: " + strconv.Itoa(id) + " hash: " + sha512Hash)
+	phh.passwordHash.Passwords[id] = sha512Hash
 }
 
 type stats struct {
@@ -105,21 +126,66 @@ type stats struct {
 	Average int
 }
 
-func statsHandler(w http.ResponseWriter, r *http.Request) {
-	realStats := stats{Total: id, Average: int(totalTimeMicro) / id}
-	jsonResult, ok := json.Marshal(&realStats)
-	if ok != nil {
-		log.Fatal(ok)
+type statsHandler struct {
+	passwordHash *PasswordHash
+}
+
+func (sh statsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		var realStats stats
+		if sh.passwordHash.Id <= 0 || sh.passwordHash.TotalTimeMicro <= 0 {
+			realStats = stats{Total: 0, Average: 0}
+		} else {
+			realStats = stats{Total: sh.passwordHash.Id, Average: int(sh.passwordHash.TotalTimeMicro) / sh.passwordHash.Id}
+		}
+
+		jsonResult, ok := json.Marshal(&realStats)
+		if ok != nil {
+			log.Fatal(ok)
+		}
+		fmt.Fprintf(w, string(jsonResult))
+		return
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
-	fmt.Fprintf(w, string(jsonResult))
+}
+
+func (shutdownh shutdownHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Shutdown called")
+	shutdownh.passwordHash.shutdown <- os.Interrupt
 }
 
 func main() {
-	// passwordHash = PasswordHash{Passwords: make(map[int]string), Id: 0, TotalTimeMicro: 0}
 
-	http.HandleFunc("/hash/", HashHandler) // TODO: Does not handle hash without ending '/' should I add another route to handle that case?
-	http.HandleFunc("/hash", HashHandler)
+	passwordHash := PasswordHash{Passwords: make(map[int]string), Id: 0, TotalTimeMicro: 0, Sleeper: &DefaultSleeper{}, shutdown: make(chan os.Signal, 1)}
+	signal.Notify(passwordHash.shutdown, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	http.HandleFunc("/stats", statsHandler)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	server := &http.Server{Addr: ":8080"}
+	http.Handle("/hash/", passwordHashHandler{&passwordHash})
+	http.Handle("/hash", passwordHashHandler{&passwordHash})
+
+	http.Handle("/stats", statsHandler{&passwordHash})
+	http.Handle("/shutdown", shutdownHandler{&passwordHash})
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+	fmt.Println("Server started")
+
+	<-passwordHash.shutdown
+	fmt.Println("Server stopped")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer func() {
+		// Do extra handling here
+		cancel()
+	}()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatalf("Server shutdown failed: %v", err)
+	}
+	log.Print("Server shutdown")
 }
