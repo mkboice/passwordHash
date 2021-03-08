@@ -18,3 +18,6 @@ echo ''
 
 curl localhost:8080/stats
 echo ''
+
+curl localhost:8080/shutdown
+echo''
