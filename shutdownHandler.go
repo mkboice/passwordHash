@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"net/http"
 	"os"
 )
@@ -13,7 +13,7 @@ type shutdownHandler struct {
 
 // Handler for the shutdown endpoint
 func (shutdownh shutdownHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Shutdown called")
+	log.Println("Shutdown called")
 	// Send interrupt signal to shutdown channel to trigger graceful shutdown
 	shutdownh.passwordHash.shutdown <- os.Interrupt
 }

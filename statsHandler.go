@@ -28,6 +28,7 @@ func (sh statsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if ok != nil {
 			log.Fatal(ok)
 		}
+		log.Printf("stats: %v", string(jsonResult))
 		fmt.Fprintf(w, string(jsonResult))
 		return
 	default:

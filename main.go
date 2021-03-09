@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -49,11 +48,11 @@ func main() {
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
-	fmt.Println("Server started")
+	log.Println("Server started")
 
 	// Listen on shutdown channel
 	<-passwordHash.shutdown
-	fmt.Println("Server stopped")
+	log.Println("Server stopped")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer func() {

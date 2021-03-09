@@ -18,12 +18,11 @@ type hashHandler struct {
 
 // get the id from the url path
 func (hh hashHandler) getIDFromPath(url *url.URL) (int, error) {
-	fmt.Println(url)
+	log.Println(url)
 	path := url.Path
 	splitPath := strings.Split(path, "/")
 	// Get the last element in the path
 	getIDString := splitPath[len(splitPath)-1]
-	fmt.Println("id: " + getIDString)
 	getID, ok := strconv.Atoi(getIDString)
 	if ok != nil {
 		return 0, fmt.Errorf("Invalid ID %v", getIDString)
@@ -44,7 +43,7 @@ func (hh hashHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if ok != nil {
 				log.Fatal(ok)
 			}
-			fmt.Println(string(jsonResponse))
+			log.Println(string(jsonResponse))
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprintf(w, string(jsonResponse))
 			return
@@ -57,7 +56,7 @@ func (hh hashHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if ok != nil {
 				log.Fatal(ok)
 			}
-			fmt.Println(string(jsonResponse))
+			log.Println(string(jsonResponse))
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprintf(w, string(jsonResponse))
 			return
@@ -80,8 +79,6 @@ func (hh hashHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, string(jsonResponse))
 			return
 		}
-
-		fmt.Println("password: " + password)
 
 		// call go routine
 		hh.passwordHash.computeHash(password)

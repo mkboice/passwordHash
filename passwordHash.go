@@ -3,7 +3,7 @@ package main
 import (
 	"crypto/sha512"
 	"encoding/base64"
-	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"sync"
@@ -42,17 +42,17 @@ func (ph *PasswordHash) computeHash(password string) {
 // Comptue the hash given the id and password string and save it in the passwords map
 func (ph *PasswordHash) doComputeHash(id int, password string) {
 	defer ph.waitGroup.Done()
-	fmt.Printf("COMPTUE called id: %s password: %s\n", strconv.Itoa(id), password)
+	log.Printf("Creating hash for id: %s password: %s\n", strconv.Itoa(id), password)
 	ph.sleeper.Sleep()
 	hash := sha512.Sum512([]byte(password))
 	sha512Hash := base64.StdEncoding.EncodeToString(hash[:])
-	fmt.Println("id: " + strconv.Itoa(id) + " hash: " + sha512Hash)
+	log.Println("id: " + strconv.Itoa(id) + " hash: " + sha512Hash)
 	ph.passwords[id] = sha512Hash
 }
 
 // Get the hash by id
 func (ph *PasswordHash) getHashByID(id int) (string, bool) {
-	fmt.Printf("GET id: %v hash: %s\n", id, ph.passwords[id])
+	log.Printf("GET id: %v hash: %s\n", id, ph.passwords[id])
 	hash, found := ph.passwords[id]
 
 	return hash, found

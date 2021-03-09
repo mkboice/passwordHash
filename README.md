@@ -45,3 +45,6 @@ curl http://localhost:8080/shutdown
 ## Next Steps
 1. Improve unit testing isolation by stubbing out PasswordHash so tests interacting with it can just focus on calls and returns rather than retesting PasswordHash.
 2. More unit tests for main.go
+
+## Notes
+1. Of course if these were real passwords they would not be logged.
